@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Poolside it for me</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Poolside it for me</h1>
+        <div id="statusLine" class="status-line">Idle</div>
+      </div>
+      <button id="openPlaygroundButton" class="secondary-button" type="button">Playground</button>
+    </header>
+
+    <nav class="tab-strip compact" aria-label="Side panel sections">
+      <button class="tab-button active" type="button" data-tab="chat">Chat</button>
+      <button class="tab-button" type="button" data-tab="advanced">Advanced</button>
+    </nav>
+
+    <main>
+      <section id="chatPanel" class="tab-panel active chat-panel" data-panel="chat">
+        <div class="chat-controls">
+          <select id="conversationSelect" aria-label="Session"></select>
+          <button id="newChatButton" class="icon-button" type="button" title="New chat" aria-label="New chat">+</button>
+        </div>
+
+        <div id="chatLog" class="chat-log" aria-live="polite"></div>
+
+        <section id="siteAccessPanel" class="site-access-panel hidden" aria-live="polite">
+          <div>
+            <h2>Website access needed</h2>
+            <p id="siteAccessText">Grant access to normal websites so the agent can observe and operate the active tab.</p>
+          </div>
+          <button id="grantSiteAccessButton" class="primary-button" type="button">Grant access</button>
+        </section>
+
+        <section id="confirmationPanel" class="confirmation-panel hidden" aria-live="assertive">
+          <h2 id="confirmationTitle">Approve action</h2>
+          <div id="confirmationDetails" class="confirmation-details"></div>
+          <div class="button-row">
+            <button id="approveActionButton" class="primary-button" type="button">Approve</button>
+            <button id="rejectActionButton" class="secondary-button" type="button">Cancel</button>
+          </div>
+        </section>
+
+        <form id="taskForm" class="composer">
+          <textarea id="taskInput" rows="2" placeholder="Ask the agent to inspect, explain, or operate this tab"></textarea>
+          <div class="composer-actions">
+            <select id="modelSelect" aria-label="Model"></select>
+            <select id="confirmationModeSelect" aria-label="Confirmation mode">
+              <option value="smart_confirmation">Smart</option>
+              <option value="confirm_every_action">Confirm all</option>
+              <option value="allow_all_actions">Allow all</option>
+            </select>
+            <button id="stopTaskButton" class="danger-button hidden" type="button">Stop</button>
+            <button id="startTaskButton" class="primary-button" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="advancedPanel" class="tab-panel" data-panel="advanced">
+        <section class="advanced-section">
+          <h2>Settings</h2>
+          <form id="settingsForm" class="settings-form">
+            <label for="apiKeyInput">OpenAI API key</label>
+            <input id="apiKeyInput" autocomplete="off" spellcheck="false" type="password" placeholder="sk-...">
+
+            <label for="customModelInput">Custom model</label>
+            <input id="customModelInput" autocomplete="off" spellcheck="false" placeholder="Optional model id">
+
+            <label for="maxStepsInput">Max steps</label>
+            <input id="maxStepsInput" min="1" max="1000" step="1" type="number">
+
+            <label class="checkbox-row" for="showActionPreviewInput">
+              <input id="showActionPreviewInput" type="checkbox">
+              <span>Show action preview</span>
+            </label>
+
+            <div class="button-row wrap">
+              <button id="saveSettingsButton" class="primary-button" type="submit">Save settings</button>
+              <button id="refreshModelsButton" class="secondary-button" type="button">Refresh models</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="advanced-section">
+          <h2>Trace</h2>
+          <div class="button-row wrap">
+            <button id="observePageButton" class="secondary-button" type="button">Observe page</button>
+            <button id="copyTraceButton" class="secondary-button" type="button">Copy compact trace</button>
+            <button id="exportTraceButton" class="secondary-button" type="button">Export JSON</button>
+          </div>
+          <div id="traceSummary" class="trace-summary"></div>
+        </section>
+
+        <section class="advanced-section">
+          <h2>Latest PageSnapshot</h2>
+          <pre id="snapshotJson" class="json-box">{}</pre>
+        </section>
+
+        <section class="advanced-section">
+          <h2>Raw JSON</h2>
+          <pre id="rawJson" class="json-box">{}</pre>
+        </section>
+
+        <section class="advanced-section">
+          <h2>Task Records</h2>
+          <div id="historyList" class="history-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

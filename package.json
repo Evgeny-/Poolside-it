@@ -1,0 +1,28 @@
+{
+  "name": "poolside-it-for-me",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/watch-extension.mjs",
+    "build": "node scripts/build-extension.mjs",
+    "check": "svelte-check --tsconfig ./tsconfig.json && node --check dist/chrome/service-worker.js && node --check dist/chrome/content/observer.js",
+    "verify": "npm run build && npm run check"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^1.14.0",
+    "bits-ui": "^2.18.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tailwindcss/vite": "^4.3.0",
+    "shadcn-svelte": "^1.2.7",
+    "svelte": "^5.55.5",
+    "svelte-check": "^4.3.4",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.12"
+  }
+}

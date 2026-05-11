@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Poolside it for me Playground</title>
+    <link rel="stylesheet" href="playground.css">
+  </head>
+  <body>
+    <header>
+      <h1>Poolside it for me Playground</h1>
+      <p>Simple pages for Phase 1 active-tab observation.</p>
+      <nav aria-label="Playground navigation">
+        <a class="primary" href="index.html">Home</a>
+        <a href="contact.html">Contact form</a>
+        <a href="compose.html">Fake compose</a>
+        <a href="dynamic.html">Dynamic UI</a>
+        <a href="ambiguous.html">Ambiguous controls</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="grid" aria-label="Playground pages">
+        <article class="tile">
+          <h2>Basic navigation</h2>
+          <p>Links and buttons are available as simple observation targets.</p>
+          <button type="button" data-onclick-action="Home button clicked">Plain button</button>
+        </article>
+        <article class="tile">
+          <h2>Contact form</h2>
+          <p>Inputs, textarea, checkbox, select, and fake submit behavior.</p>
+          <a href="contact.html">Open contact form</a>
+        </article>
+        <article class="tile">
+          <h2>Fake email compose</h2>
+          <p>Recipient, subject, body, and non-destructive send action.</p>
+          <a href="compose.html">Open compose</a>
+        </article>
+        <article class="tile">
+          <h2>Dynamic UI</h2>
+          <p>Controls appear after clicks and rows can be added.</p>
+          <a href="dynamic.html">Open dynamic UI</a>
+        </article>
+      </section>
+      <div id="status" class="status" aria-live="polite"></div>
+    </main>
+
+    <script src="../content/observer.js"></script>
+    <script src="playground.js"></script>
+  </body>
+</html>

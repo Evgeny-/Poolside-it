@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Playground Ambiguous Controls</title>
+    <link rel="stylesheet" href="playground.css">
+  </head>
+  <body>
+    <header>
+      <h1>Ambiguous Controls</h1>
+      <p>Repeated labels and mixed roles for future disambiguation.</p>
+      <nav aria-label="Playground navigation">
+        <a href="index.html">Home</a>
+        <a href="contact.html">Contact form</a>
+        <a href="compose.html">Fake compose</a>
+        <a href="dynamic.html">Dynamic UI</a>
+        <a class="primary" href="ambiguous.html">Ambiguous controls</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Choose an action</h2>
+        <div class="ambiguous-grid">
+          <button type="button" data-onclick-action="Opened primary account">Open</button>
+          <button type="button" data-onclick-action="Opened archive account">Open</button>
+          <button type="button" data-onclick-action="Sent local draft">Send</button>
+          <button type="button" data-onclick-action="Sent test notification">Send</button>
+          <a href="#open-link">Open</a>
+          <div role="button" tabindex="0" class="clickable-box" data-onclick-action="Role button selected">Open</div>
+          <div role="menuitem" tabindex="0" class="clickable-box" data-onclick-action="Menu item selected">More</div>
+          <div tabindex="0" class="clickable-box" data-onclick-action="Tabindex box selected">Focusable box</div>
+        </div>
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script src="../content/observer.js"></script>
+    <script src="playground.js"></script>
+  </body>
+</html>

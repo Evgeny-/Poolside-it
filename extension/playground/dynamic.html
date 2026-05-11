@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Playground Dynamic UI</title>
+    <link rel="stylesheet" href="playground.css">
+  </head>
+  <body>
+    <header>
+      <h1>Dynamic UI</h1>
+      <p>Controls appear after user interaction.</p>
+      <nav aria-label="Playground navigation">
+        <a href="index.html">Home</a>
+        <a href="contact.html">Contact form</a>
+        <a href="compose.html">Fake compose</a>
+        <a class="primary" href="dynamic.html">Dynamic UI</a>
+        <a href="ambiguous.html">Ambiguous controls</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Reveal controls</h2>
+        <div class="button-row">
+          <button class="primary" type="button" data-reveal-panel>Show advanced options</button>
+          <button type="button" data-add-row>Add dynamic row</button>
+        </div>
+
+        <div id="revealedPanel" class="subpanel hidden">
+          <h2>Advanced options</h2>
+          <label for="advancedName">Internal label
+            <input id="advancedName" placeholder="Visible after click">
+          </label>
+          <label for="advancedMode">Mode
+            <select id="advancedMode">
+              <option value="draft">Draft</option>
+              <option value="review">Review</option>
+              <option value="final">Final</option>
+            </select>
+          </label>
+          <div id="editableNote" contenteditable="true" role="textbox" aria-label="Editable note">Editable note</div>
+        </div>
+
+        <div id="dynamicList" class="dynamic-list" aria-label="Dynamic rows"></div>
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script src="../content/observer.js"></script>
+    <script src="playground.js"></script>
+  </body>
+</html>

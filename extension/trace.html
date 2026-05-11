@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Poolside it for me Run Details</title>
+    <link rel="stylesheet" href="trace.css">
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <h1>Run Details</h1>
+        <div id="runMeta" class="muted">Loading</div>
+      </div>
+      <div class="header-actions">
+        <button id="copyJsonButton" type="button">Copy JSON</button>
+        <button id="copyFullJsonButton" class="secondary-button" type="button">Copy full JSON</button>
+      </div>
+    </header>
+
+    <main class="trace-layout">
+      <aside class="trace-sidebar">
+        <h2>Steps</h2>
+        <nav id="stepsNav" class="steps-nav" aria-label="Trace steps"></nav>
+      </aside>
+
+      <div class="trace-content">
+        <section class="summary-panel">
+          <h2>Summary</h2>
+          <div id="summaryGrid" class="summary-grid"></div>
+        </section>
+
+        <section class="steps-panel">
+          <h2>Timeline</h2>
+          <div id="stepsList" class="steps-list"></div>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="trace.js"></script>
+  </body>
+</html>

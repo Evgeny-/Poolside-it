@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Playground Contact Form</title>
+    <link rel="stylesheet" href="playground.css">
+  </head>
+  <body>
+    <header>
+      <h1>Contact Form</h1>
+      <p>Non-destructive form controls for observe_page.</p>
+      <nav aria-label="Playground navigation">
+        <a href="index.html">Home</a>
+        <a class="primary" href="contact.html">Contact form</a>
+        <a href="compose.html">Fake compose</a>
+        <a href="dynamic.html">Dynamic UI</a>
+        <a href="ambiguous.html">Ambiguous controls</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Contact request</h2>
+        <form data-fake-submit data-status-target="#status" data-success-text="Contact request saved locally.">
+          <label for="contactName">Name
+            <input id="contactName" name="name" placeholder="Ada Lovelace" autocomplete="name">
+          </label>
+
+          <label for="contactEmail">Email
+            <input id="contactEmail" name="email" type="email" placeholder="ada@example.com" autocomplete="email">
+          </label>
+
+          <label for="topicSelect">Topic
+            <select id="topicSelect" name="topic">
+              <option value="">Choose a topic</option>
+              <option value="support">Support</option>
+              <option value="sales">Sales</option>
+              <option value="feedback">Feedback</option>
+            </select>
+          </label>
+
+          <label for="contactMessage">Message
+            <textarea id="contactMessage" name="message" placeholder="Write a short message"></textarea>
+          </label>
+
+          <label>
+            <input id="termsCheckbox" name="terms" type="checkbox">
+            I agree to the fake terms
+          </label>
+
+          <div class="button-row">
+            <button class="primary" type="submit">Submit request</button>
+            <button type="reset">Reset</button>
+          </div>
+        </form>
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script src="../content/observer.js"></script>
+    <script src="playground.js"></script>
+  </body>
+</html>

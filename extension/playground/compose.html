@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Playground Fake Email Compose</title>
+    <link rel="stylesheet" href="playground.css">
+  </head>
+  <body>
+    <header>
+      <h1>Fake Email Compose</h1>
+      <p>A local compose flow with no network send.</p>
+      <nav aria-label="Playground navigation">
+        <a href="index.html">Home</a>
+        <a href="contact.html">Contact form</a>
+        <a class="primary" href="compose.html">Fake compose</a>
+        <a href="dynamic.html">Dynamic UI</a>
+        <a href="ambiguous.html">Ambiguous controls</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="toolbar">
+          <button type="button">Archive</button>
+          <button type="button">Mark unread</button>
+          <button type="button">Compose</button>
+        </div>
+
+        <form data-fake-submit data-status-target="#status" data-success-text="Fake email marked as sent.">
+          <label for="recipientInput">To
+            <input id="recipientInput" name="to" type="email" placeholder="manager@example.com">
+          </label>
+
+          <label for="subjectInput">Subject
+            <input id="subjectInput" name="subject" placeholder="Out sick today">
+          </label>
+
+          <label for="bodyInput">Message
+            <textarea id="bodyInput" name="body" placeholder="Write the email body"></textarea>
+          </label>
+
+          <div class="button-row">
+            <button class="primary" type="submit">Send</button>
+            <button type="button" data-onclick-action="Draft discarded">Discard</button>
+            <button type="button" data-onclick-action="Draft saved">Save draft</button>
+          </div>
+        </form>
+
+        <div class="fake-inbox" aria-label="Fake inbox">
+          <a href="#thread-1">Team meeting notes</a>
+          <a href="#thread-2">Lunch plans</a>
+          <a href="#thread-3">Build status update</a>
+        </div>
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script src="../content/observer.js"></script>
+    <script src="playground.js"></script>
+  </body>
+</html>
