@@ -1,8 +1,8 @@
 # Poolside it for me
 
-Poolside it for me is a Chrome/Chromium Manifest V3 extension that opens an AI side-panel for the active browser tab. It can inspect visible page content, explain what it sees, and perform controlled browser actions such as clicking, filling fields, selecting options, pressing keys, and scrolling.
+Poolside it for me is a Chrome/Chromium  extension that opens an AI side-panel for the active browser tab. It can inspect visible page content, explain what it sees, and perform controlled browser actions such as clicking, filling fields, selecting options, pressing keys, and scrolling.
 
-The project is a local-first prototype: there is no hosted backend, the UI is built with Svelte 5 and Vite, and model calls are made from the extension service worker with your own OpenRouter API key.
+And it can work as MCP bridge/broker
 
 ## What It Includes
 
