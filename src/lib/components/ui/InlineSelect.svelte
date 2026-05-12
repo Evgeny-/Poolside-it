@@ -60,7 +60,7 @@
   <button
     type="button"
     class={cn(
-      "font-mono-ui inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60",
+      "fyr-select-trigger inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-base text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-60",
       buttonClass
     )}
     aria-label={ariaLabel}
@@ -77,7 +77,7 @@
   {#if open}
     <div
       class={cn(
-        "absolute z-30 grid max-h-64 w-max min-w-full max-w-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-panel",
+        "fyr-menu absolute z-30 grid max-h-64 w-max min-w-full max-w-72 overflow-auto rounded-lg bg-popover p-1 text-popover-foreground",
         placement === "top" ? "bottom-full mb-1" : "top-full mt-1",
         menuClass
       )}
@@ -93,7 +93,7 @@
           aria-selected={option.value === value}
           title={option.title || option.label}
           class={cn(
-            "grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-secondary",
+            "grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-secondary",
             option.value === value ? "text-foreground" : "text-muted-foreground"
           )}
           onmousedown={(event) => event.preventDefault()}

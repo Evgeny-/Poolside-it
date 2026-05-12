@@ -15,7 +15,7 @@ export function createTaskTrace({
     updatedAt: now,
     completedAt: null,
     activeTab: serializeTab(tab),
-    modelProvider: "openai",
+    modelProvider: "openrouter",
     model: settings.model || "not_configured",
     confirmationMode: settings.confirmationMode,
     actionPreview: settings.showActionPreview !== false,

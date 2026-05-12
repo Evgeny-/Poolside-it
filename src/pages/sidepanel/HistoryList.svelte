@@ -16,11 +16,11 @@
 
 <div class="grid gap-2">
   {#if !history.length}
-    <div class="rounded-lg border border-dashed border-border bg-muted/40 p-3 text-sm text-muted-foreground">No task history.</div>
+    <div class="rounded-lg border border-dashed border-border/80 bg-foreground/[0.02] p-3 text-sm text-muted-foreground">No task history.</div>
   {:else}
     {#each history as record}
-      <article class="grid gap-2 rounded-lg border border-border bg-card p-3">
-        <div class="flex items-start justify-between gap-2 text-sm font-bold">
+      <article class="grid gap-2 rounded-[16px] border border-foreground/[0.06] bg-foreground/[0.02] p-3">
+        <div class="flex items-start justify-between gap-2 text-base font-medium">
           <span>{record.status}</span>
           <span class="text-xs text-muted-foreground">{record.instruction || record.taskId}</span>
         </div>

@@ -279,7 +279,7 @@ Status: not required for the completed UI migration.
 Goal: modernize non-UI code after the UI build is stable.
 
 - Convert shared modules to TypeScript first.
-- Convert model/openai-client modules second.
+- Convert model provider client modules second.
 - Convert service worker once shared contracts are typed.
 - Convert content observer last, or keep it as plain JavaScript if bundling it introduces injection risk.
 

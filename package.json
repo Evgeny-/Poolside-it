@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node scripts/watch-extension.mjs",
     "build": "node scripts/build-extension.mjs",
-    "check": "svelte-check --tsconfig ./tsconfig.json && node --check dist/chrome/service-worker.js && node --check dist/chrome/content/observer.js",
+    "mcp": "node mcp/server.mjs",
+    "check": "svelte-check --tsconfig ./tsconfig.json && node --check dist/chrome/service-worker.js && node --check dist/chrome/content/observer.js && node --check mcp/server.mjs",
     "verify": "npm run build && npm run check"
   },
   "dependencies": {

@@ -35,7 +35,7 @@
       </ul>
     {/if}
   {:else}
-    <div class="rounded-md border border-dashed border-border bg-muted/50 p-3 text-sm text-muted-foreground">None</div>
+    <div class="rounded-md border border-dashed border-border/80 bg-foreground/[0.02] p-3 text-sm text-muted-foreground">None</div>
   {/if}
 
   {#if hasMore}

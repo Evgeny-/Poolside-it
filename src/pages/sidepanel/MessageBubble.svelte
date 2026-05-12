@@ -22,11 +22,11 @@
 
 <div
   class={[
-    "group relative max-w-[92%] rounded-md border px-3 py-2.5 text-sm leading-5 shadow-panel",
-    isUser ? "self-end border-primary/20 bg-accent text-accent-foreground" : "",
-    !isUser && !isTool ? "self-start border-border bg-card text-card-foreground" : "",
-    isError ? "border-destructive/30 bg-destructive/10 text-destructive" : "",
-    isTool ? "grid max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 self-start border-0 bg-transparent p-1 text-xs text-muted-foreground shadow-none" : "",
+    "group relative text-base leading-5",
+    isUser ? "user-bubble max-w-[80%] self-end rounded-[16px] rounded-br-[6px] px-2.5 py-1.5 text-white shadow-none" : "",
+    !isUser && !isTool && !isError ? "max-w-full self-start px-0 py-1 text-foreground/90" : "",
+    isError ? "max-w-full self-start rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive" : "",
+    isTool ? "grid max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 self-start p-1 text-xs text-muted-foreground" : "",
     message?.traceId && isUser ? "rounded-br-sm" : ""
   ].filter(Boolean).join(" ")}
 >

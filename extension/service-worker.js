@@ -2,11 +2,13 @@ import {
   CONFIRMATION_MODES,
   CONTENT_MESSAGE_TYPES,
   DEFAULT_SETTINGS,
+  MCP_BRIDGE,
   MAX_AGENT_STEPS,
   MESSAGE_TYPES,
   PORT_NAMES,
   UI_MESSAGE_TYPES,
-  normalizeConfirmationMode
+  normalizeConfirmationMode,
+  normalizeModel
 } from "./shared/protocol.js";
 import {
   appendConversationMessage,
@@ -28,13 +30,14 @@ import {
 import {
   addTraceStep,
   createObservationStep,
+  createId,
   createTaskTrace,
   finishTrace,
   hydrateTraceActiveTabFromSnapshot,
   serializeError
 } from "./shared/trace.js";
-import { AGENT_TOOLS, chooseNextAction, readSnapshotTextPage, RISK_CATEGORIES } from "./model/agent.js";
-import { getOpenAIModelStatus, listOpenAIModels } from "./model/openai-client.js";
+import { AGENT_TOOLS, chooseNextAction, compactSnapshot, readSnapshotTextPage, RISK_CATEGORIES } from "./model/agent.js";
+import { getOpenRouterModelStatus, listOpenRouterModels } from "./model/openrouter-client.js";
 
 const knownPanelMessages = new Set(Object.values(MESSAGE_TYPES));
 const runningTaskIds = new Set();
@@ -45,7 +48,32 @@ const playgroundUrlsByTabId = new Map();
 const MAX_RECOVERY_STEPS = 3;
 const ACTION_PREVIEW_DELAY_MS = 650;
 const ACTION_PREVIEW_CLEAR_DELAY_MS = 250;
+const CONTENT_SCRIPT_INJECTION_TIMEOUT_MS = 8000;
+const CONTENT_MESSAGE_TIMEOUT_MS = 8000;
+const PAGE_OBSERVATION_TIMEOUT_MS = 18000;
+const MODEL_DECISION_TIMEOUT_MS = 120000;
 const TOP_FRAME_ID = 0;
+const MCP_BRIDGE_HOST = "127.0.0.1";
+const MCP_BRIDGE_PORT_CANDIDATES = Array.from({ length: 11 }, (_, index) => MCP_BRIDGE.DEFAULT_PORT + index);
+const MCP_BRIDGE_CLIENT_ID = `${MCP_BRIDGE.CLIENT_NAME}_${createId("client")}`;
+const MCP_BRIDGE_FETCH_TIMEOUT_MS = MCP_BRIDGE.POLL_TIMEOUT_MS + 5000;
+const MCP_SNAPSHOT_LIMITS = Object.freeze({
+  pageTextCharLimit: 30000,
+  elementLimit: 150
+});
+const mcpSnapshotsByTabId = new Map();
+let mcpBridgeLoopStarted = false;
+let mcpBridgeEndpoint = null;
+let mcpBridgeState = {
+  connected: false,
+  clientId: MCP_BRIDGE_CLIENT_ID,
+  url: "",
+  port: MCP_BRIDGE.DEFAULT_PORT,
+  controlledBy: "",
+  lastConnectedAt: null,
+  lastSeenAt: null,
+  lastError: ""
+};
 
 chrome.runtime.onInstalled.addListener(() => {
   enableActionSidePanel();
@@ -56,6 +84,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.action.onClicked.addListener(async (tab) => {
+  ensureMcpBridgeLoop();
   if (!chrome.sidePanel?.open || !tab.windowId) {
     return;
   }
@@ -135,11 +164,11 @@ async function handlePanelMessage(message) {
       return activateConversation(message.payload || {});
     case MESSAGE_TYPES.OPEN_PLAYGROUND:
       return openPlayground();
-    case MESSAGE_TYPES.LIST_OPENAI_MODELS:
+    case MESSAGE_TYPES.LIST_MODELS:
       return listModels();
     case MESSAGE_TYPES.MODEL_STATUS:
       return {
-        model: getOpenAIModelStatus()
+        model: getOpenRouterModelStatus()
       };
     default:
       throw new Error(`Unsupported message type: ${message.type}`);
@@ -147,6 +176,7 @@ async function handlePanelMessage(message) {
 }
 
 async function getAppState() {
+  ensureMcpBridgeLoop();
   const [settings, history, debugState, activeConversation] = await Promise.all([
     getSettings(),
     getHistory(),
@@ -160,8 +190,473 @@ async function getAppState() {
     conversations,
     activeConversation,
     ...debugState,
-    model: getOpenAIModelStatus()
+    mcpBridge: getMcpBridgeStatus(),
+    model: getOpenRouterModelStatus()
   };
+}
+
+function ensureMcpBridgeLoop() {
+  if (mcpBridgeLoopStarted) {
+    return;
+  }
+  mcpBridgeLoopStarted = true;
+  runMcpBridgeLoop();
+}
+
+async function runMcpBridgeLoop() {
+  for (;;) {
+    try {
+      const command = await pollMcpBridge();
+      updateMcpBridgeState({
+        connected: true,
+        controlledBy: "MCP",
+        lastConnectedAt: mcpBridgeState.lastConnectedAt || new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        lastError: ""
+      });
+
+      if (command?.type === "command") {
+        await handleMcpBridgeCommandWithResult(command);
+      }
+    } catch (error) {
+      mcpBridgeEndpoint = null;
+      updateMcpBridgeState({
+        connected: false,
+        controlledBy: "",
+        lastError: error.message || String(error)
+      });
+      await sleep(MCP_BRIDGE.RETRY_DELAY_MS);
+    }
+  }
+}
+
+async function pollMcpBridge() {
+  const endpoint = await resolveMcpBridgeEndpoint();
+  const url = new URL("/extension/poll", endpoint.url);
+  url.searchParams.set("clientId", MCP_BRIDGE_CLIENT_ID);
+  url.searchParams.set("token", MCP_BRIDGE.TOKEN);
+  const response = await fetchWithTimeout(url.href, {
+    method: "GET",
+    cache: "no-store"
+  }, MCP_BRIDGE_FETCH_TIMEOUT_MS);
+  if (!response.ok) {
+    throw new Error(`MCP bridge poll failed with HTTP ${response.status}.`);
+  }
+  return response.json();
+}
+
+async function handleMcpBridgeCommandWithResult(command) {
+  try {
+    const data = await handleMcpBridgeCommand(command);
+    await postMcpBridgeResult({
+      id: command.id,
+      ok: true,
+      data
+    });
+  } catch (error) {
+    await postMcpBridgeResult({
+      id: command.id,
+      ok: false,
+      error: serializeError(error)
+    }).catch(() => {});
+  }
+}
+
+async function postMcpBridgeResult(result) {
+  const endpoint = await resolveMcpBridgeEndpoint();
+  const response = await fetchWithTimeout(`${endpoint.url}/extension/result`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      clientId: MCP_BRIDGE_CLIENT_ID,
+      token: MCP_BRIDGE.TOKEN,
+      ...result
+    })
+  }, CONTENT_MESSAGE_TIMEOUT_MS);
+  if (!response.ok) {
+    throw new Error(`MCP bridge result failed with HTTP ${response.status}.`);
+  }
+  return response.json();
+}
+
+async function resolveMcpBridgeEndpoint() {
+  if (mcpBridgeEndpoint) {
+    return mcpBridgeEndpoint;
+  }
+
+  const errors = [];
+  for (const port of MCP_BRIDGE_PORT_CANDIDATES) {
+    const url = `http://${MCP_BRIDGE_HOST}:${port}`;
+    try {
+      const response = await fetchWithTimeout(`${url}/health`, {
+        method: "GET",
+        cache: "no-store"
+      }, 1000);
+      if (!response.ok) {
+        continue;
+      }
+      const health = await response.json();
+      if (health?.name !== "poolside-browser") {
+        continue;
+      }
+      mcpBridgeEndpoint = {
+        url,
+        port
+      };
+      updateMcpBridgeState({
+        url,
+        port
+      });
+      return mcpBridgeEndpoint;
+    } catch (error) {
+      errors.push(`${port}: ${error.message || String(error)}`);
+    }
+  }
+
+  throw new Error(`No compatible local MCP bridge found on ports ${MCP_BRIDGE_PORT_CANDIDATES.join(", ")}. Start the poolside-browser MCP server from your MCP client. ${errors[0] || ""}`.trim());
+}
+
+async function handleMcpBridgeCommand(command) {
+  const method = String(command.method || "");
+  const params = command.params || {};
+  switch (method) {
+    case "browser_status":
+      return getMcpBrowserStatus();
+    case "open_url":
+      return openUrlFromMcp(params);
+    case "observe_active_tab":
+      return observeActiveTabFromMcp(params);
+    case "click_element":
+    case "fill_element":
+    case "clear_element":
+    case "select_option":
+    case "submit_form":
+    case "press_key":
+    case "scroll":
+    case "read_page_text":
+      return executeBrowserToolFromMcp(method, params);
+    default:
+      throw new Error(`Unsupported MCP bridge command: ${method}`);
+  }
+}
+
+async function getMcpBrowserStatus() {
+  const tab = await getActiveTab().catch(() => null);
+  return {
+    extensionConnected: true,
+    bridge: getMcpBridgeStatus(),
+    activeTab: tab ? serializeConversationTab(tab) : null,
+    lastSnapshot: getMcpSnapshotSummaryForTab(tab?.id)
+  };
+}
+
+async function openUrlFromMcp(params) {
+  const url = normalizeMcpNavigationUrl(params.url);
+  const newTab = params.newTab === true;
+  let tab = null;
+  let previousUrl = "";
+
+  if (newTab) {
+    tab = await chrome.tabs.create({
+      active: true,
+      url
+    });
+  } else {
+    const activeTab = await getActiveTab().catch(() => null);
+    previousUrl = activeTab?.url || "";
+    if (activeTab?.id) {
+      tab = await chrome.tabs.update(activeTab.id, {
+        active: true,
+        url
+      });
+    } else {
+      tab = await chrome.tabs.create({
+        active: true,
+        url
+      });
+    }
+  }
+
+  const settledTab = Number.isInteger(tab?.id)
+    ? await waitForTabNavigation(tab.id, url, previousUrl).catch(() => tab)
+    : tab;
+  clearMcpSnapshotForTab(tab?.id);
+  return {
+    status: "ok",
+    tab: settledTab ? serializeConversationTab(settledTab) : null,
+    url
+  };
+}
+
+async function observeActiveTabFromMcp(params = {}) {
+  const { tab, snapshot } = await observeActiveTab();
+  if (params.persist !== false) {
+    await saveLatestSnapshot(snapshot);
+  }
+  return storeAndFormatMcpSnapshot({ tab, snapshot });
+}
+
+async function executeBrowserToolFromMcp(tool, params = {}) {
+  const { tab, snapshot, snapshotId } = await resolveMcpSnapshotForAction(params);
+  const toolCall = normalizeMcpToolCall(tool, params);
+  const validation = validateToolCall(toolCall, snapshot);
+  if (!validation.ok) {
+    throw new Error(validation.reason);
+  }
+
+  const settings = await getSettings();
+  let preview = null;
+  if (shouldPreviewAction(settings, toolCall)) {
+    preview = await previewActionInTab(tab, toolCall, {
+      delayMs: ACTION_PREVIEW_DELAY_MS
+    }, snapshot);
+    if (isStalePreviewFailure(preview)) {
+      throw new Error(preview.error?.message || preview.reason || "Action target is no longer available.");
+    }
+  }
+
+  const confirmation = await decideConfirmation({
+    settings,
+    tab,
+    snapshot,
+    toolCall,
+    decision: toolCall,
+    validation
+  });
+  if (confirmation.required && confirmation.decision !== "approved") {
+    await clearActionPreviewInTab(tab);
+    throw new Error("MCP browser action was not approved in the extension.");
+  }
+
+  const execution = await executeActionInTab(tab, toolCall, snapshot);
+  await clearActionPreviewInTab(tab, { delayMs: ACTION_PREVIEW_CLEAR_DELAY_MS });
+  return {
+    status: execution.status || "ok",
+    snapshotId,
+    toolCall,
+    validation,
+    confirmation,
+    preview,
+    execution
+  };
+}
+
+async function resolveMcpSnapshotForAction(params = {}) {
+  const requestedSnapshotId = String(params.snapshotId || "");
+  if (requestedSnapshotId) {
+    const existing = findMcpSnapshotById(requestedSnapshotId);
+    if (!existing) {
+      throw new Error("Snapshot not found or expired. Call observe_active_tab again before taking browser actions.");
+    }
+    const tab = await chrome.tabs.get(existing.tabId).catch(() => null);
+    if (!tab) {
+      throw new Error("The tab for this snapshot is no longer available.");
+    }
+    return {
+      tab,
+      snapshot: existing.snapshot,
+      snapshotId: existing.snapshotId
+    };
+  }
+
+  const activeTab = await getActiveTab();
+  const existing = mcpSnapshotsByTabId.get(activeTab.id);
+  if (existing) {
+    return {
+      tab: activeTab,
+      snapshot: existing.snapshot,
+      snapshotId: existing.snapshotId
+    };
+  }
+
+  if (requiresObservedElement(params)) {
+    throw new Error("Call observe_active_tab first and use an elementId from that snapshot.");
+  }
+
+  const snapshot = await requestPageSnapshot(activeTab);
+  return {
+    tab: activeTab,
+    ...storeMcpSnapshot({ tab: activeTab, snapshot })
+  };
+}
+
+function requiresObservedElement(params) {
+  return Boolean(params.elementId);
+}
+
+function normalizeMcpToolCall(tool, params = {}) {
+  return normalizeToolCall({
+    tool,
+    elementId: params.elementId || null,
+    text: params.text ?? null,
+    value: params.value ?? null,
+    key: params.key ?? null,
+    direction: params.direction ?? null,
+    amount: Number.isFinite(Number(params.amount)) ? Number(params.amount) : null,
+    cursor: params.cursor || null,
+    summary: params.summary || defaultMcpActionSummary(tool, params),
+    reason: params.reason || "Requested through the local MCP bridge.",
+    requiresConfirmation: typeof params.requiresConfirmation === "boolean"
+      ? params.requiresConfirmation
+      : defaultMcpRequiresConfirmation(tool, params),
+    riskCategory: params.riskCategory || defaultMcpRiskCategory(tool, params)
+  });
+}
+
+function defaultMcpActionSummary(tool, params = {}) {
+  if (tool === "fill_element") {
+    return `Fill ${params.elementId || "element"}`;
+  }
+  if (tool === "click_element") {
+    return `Click ${params.elementId || "element"}`;
+  }
+  if (tool === "clear_element") {
+    return `Clear ${params.elementId || "element"}`;
+  }
+  if (tool === "select_option") {
+    return `Select ${params.value || params.text || "option"}`;
+  }
+  if (tool === "submit_form") {
+    return `Submit form from ${params.elementId || "element"}`;
+  }
+  if (tool === "press_key") {
+    return `Press ${params.key || "key"}`;
+  }
+  if (tool === "scroll") {
+    return `Scroll ${params.direction || "down"}`;
+  }
+  if (tool === "read_page_text") {
+    return "Read visible page text";
+  }
+  return tool;
+}
+
+function defaultMcpRequiresConfirmation(tool, params = {}) {
+  return tool === "submit_form" || (tool === "press_key" && params.key === "Enter");
+}
+
+function defaultMcpRiskCategory(tool, params = {}) {
+  if (tool === "read_page_text" || tool === "scroll") {
+    return "safe_navigation";
+  }
+  if (["fill_element", "clear_element", "select_option"].includes(tool)) {
+    return "data_entry";
+  }
+  if (tool === "submit_form") {
+    return "external_submit";
+  }
+  if (tool === "press_key" && params.key !== "Enter") {
+    return "safe_navigation";
+  }
+  return "unknown";
+}
+
+function storeAndFormatMcpSnapshot({ tab, snapshot }) {
+  const stored = storeMcpSnapshot({ tab, snapshot });
+  return {
+    snapshotId: stored.snapshotId,
+    tab: serializeConversationTab(tab),
+    snapshot: compactSnapshot(snapshot, MCP_SNAPSHOT_LIMITS),
+    snapshotMeta: {
+      url: snapshot.url || tab.url || "",
+      title: snapshot.title || tab.title || "",
+      elementCount: snapshot.elements?.length || 0,
+      textSnippetCount: snapshot.pageText?.length || 0,
+      frameCount: snapshot.frames?.length || 1,
+      visibleTextTruncated: Boolean(snapshot.pageTextMeta?.truncated)
+    }
+  };
+}
+
+function storeMcpSnapshot({ tab, snapshot }) {
+  const snapshotId = createId("mcp_snapshot");
+  const record = {
+    snapshotId,
+    tabId: tab.id,
+    url: snapshot.url || tab.url || "",
+    title: snapshot.title || tab.title || "",
+    snapshot,
+    createdAt: new Date().toISOString()
+  };
+  if (Number.isInteger(tab.id)) {
+    mcpSnapshotsByTabId.set(tab.id, record);
+  }
+  return {
+    snapshotId,
+    snapshot
+  };
+}
+
+function findMcpSnapshotById(snapshotId) {
+  return Array.from(mcpSnapshotsByTabId.values())
+    .find((record) => record.snapshotId === snapshotId) || null;
+}
+
+function getMcpSnapshotSummaryForTab(tabId) {
+  const record = Number.isInteger(tabId) ? mcpSnapshotsByTabId.get(tabId) : null;
+  if (!record) {
+    return null;
+  }
+  return {
+    snapshotId: record.snapshotId,
+    url: record.url,
+    title: record.title,
+    createdAt: record.createdAt
+  };
+}
+
+function clearMcpSnapshotForTab(tabId) {
+  if (Number.isInteger(tabId)) {
+    mcpSnapshotsByTabId.delete(tabId);
+  }
+}
+
+function normalizeMcpNavigationUrl(value) {
+  const rawUrl = String(value || "").trim();
+  if (!rawUrl) {
+    throw new Error("open_url requires url.");
+  }
+  const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+  let parsed = null;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error(`Invalid URL: ${rawUrl}`);
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Only http and https URLs can be opened through MCP.");
+  }
+  return parsed.href;
+}
+
+function getMcpBridgeStatus() {
+  return {
+    ...mcpBridgeState
+  };
+}
+
+function updateMcpBridgeState(patch) {
+  const previous = JSON.stringify(mcpBridgeState);
+  mcpBridgeState = {
+    ...mcpBridgeState,
+    ...patch
+  };
+  if (JSON.stringify(mcpBridgeState) !== previous) {
+    emitMcpBridgeStatus();
+  }
+}
+
+async function emitMcpBridgeStatus() {
+  try {
+    await chrome.runtime.sendMessage({
+      type: UI_MESSAGE_TYPES.MCP_BRIDGE_STATUS,
+      payload: getMcpBridgeStatus()
+    });
+  } catch (error) {
+    // Side panel may be closed; getAppState returns the latest status when it opens.
+  }
 }
 
 async function startTask(payload) {
@@ -170,7 +665,13 @@ async function startTask(payload) {
     throw new Error("Task instruction is required.");
   }
 
-  const settings = await getSettings();
+  const storedSettings = await getSettings();
+  const settings = Number.isFinite(Number(payload.maxSteps)) && Number(payload.maxSteps) > 0
+    ? {
+      ...storedSettings,
+      maxSteps: clamp(Number(payload.maxSteps), 1, MAX_AGENT_STEPS)
+    }
+    : storedSettings;
   const tab = await getActiveTab();
   const conversation = await resolveConversation(payload.conversationId, tab);
   const trace = createTaskTrace({
@@ -178,7 +679,7 @@ async function startTask(payload) {
     instruction,
     tab,
     settings,
-    source: "chat"
+    source: payload.source || "chat"
   });
 
   runningTaskIds.add(trace.taskId);
@@ -229,7 +730,7 @@ async function startTask(payload) {
 
 async function runAgentLoop({ trace, tab, settings, conversationId }) {
   if (!settings.apiKey) {
-    throw new Error("OpenAI API key is required. Add it in Settings before starting a task.");
+    throw new Error("OpenRouter API key is required. Add it in Settings before starting a task.");
   }
 
   const maxSteps = clamp(Number(settings.maxSteps) || DEFAULT_SETTINGS.maxSteps, 1, MAX_AGENT_STEPS);
@@ -240,7 +741,7 @@ async function runAgentLoop({ trace, tab, settings, conversationId }) {
       return trace;
     }
 
-    currentTab = await getActiveTab();
+    currentTab = await getTaskTab(currentTab);
     let snapshot = null;
     try {
       snapshot = await requestPageSnapshot(currentTab);
@@ -281,14 +782,18 @@ async function runAgentLoop({ trace, tab, settings, conversationId }) {
 
     let modelResult = null;
     try {
-      modelResult = await chooseNextAction({
-        apiKey: settings.apiKey,
-        model: settings.model,
-        instruction: trace.instruction,
-        snapshot,
-        trace,
-        conversation
-      });
+      modelResult = await withTimeout(
+        chooseNextAction({
+          apiKey: settings.apiKey,
+          model: settings.model,
+          instruction: trace.instruction,
+          snapshot,
+          trace,
+          conversation
+        }),
+        MODEL_DECISION_TIMEOUT_MS,
+        "Timed out waiting for the model decision."
+      );
     } catch (error) {
       const recovered = await recoverFromLoopError({
         trace,
@@ -586,6 +1091,14 @@ async function observeActiveTab() {
 }
 
 async function requestPageSnapshot(tab) {
+  return withTimeout(
+    requestPageSnapshotWithoutTimeout(tab),
+    PAGE_OBSERVATION_TIMEOUT_MS,
+    "Timed out while observing the page. The page may be too large or unresponsive."
+  );
+}
+
+async function requestPageSnapshotWithoutTimeout(tab) {
   if (isExtensionPlaygroundTab(tab)) {
     return requestSnapshotFromPlayground(tab);
   }
@@ -762,10 +1275,14 @@ function mayTriggerPageNavigation({ snapshot, toolCall }) {
 
 async function ensureObserverInTab(tab, { allFrames = false } = {}) {
   try {
-    const results = await chrome.scripting.executeScript({
-      target: allFrames ? { tabId: tab.id, allFrames: true } : { tabId: tab.id },
-      files: ["content/observer.js"]
-    });
+    const results = await withTimeout(
+      chrome.scripting.executeScript({
+        target: allFrames ? { tabId: tab.id, allFrames: true } : { tabId: tab.id },
+        files: ["content/observer.js"]
+      }),
+      CONTENT_SCRIPT_INJECTION_TIMEOUT_MS,
+      "Timed out injecting the page observer."
+    );
     return {
       frameIds: extractInjectedFrameIds(results),
       error: null
@@ -773,10 +1290,14 @@ async function ensureObserverInTab(tab, { allFrames = false } = {}) {
   } catch (error) {
     if (allFrames) {
       try {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["content/observer.js"]
-        });
+        const results = await withTimeout(
+          chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["content/observer.js"]
+          }),
+          CONTENT_SCRIPT_INJECTION_TIMEOUT_MS,
+          "Timed out injecting the page observer into the top frame."
+        );
         return {
           frameIds: extractInjectedFrameIds(results),
           error: serializeError(error)
@@ -797,18 +1318,34 @@ async function sendContentMessage(tab, message, options = {}) {
   const sendOptions = Number.isInteger(options.frameId) ? { frameId: options.frameId } : undefined;
   try {
     if (sendOptions) {
-      return await chrome.tabs.sendMessage(tab.id, message, sendOptions);
+      return await withTimeout(
+        chrome.tabs.sendMessage(tab.id, message, sendOptions),
+        CONTENT_MESSAGE_TIMEOUT_MS,
+        "Timed out waiting for the page observer to respond."
+      );
     }
-    return await chrome.tabs.sendMessage(tab.id, message);
+    return await withTimeout(
+      chrome.tabs.sendMessage(tab.id, message),
+      CONTENT_MESSAGE_TIMEOUT_MS,
+      "Timed out waiting for the page observer to respond."
+    );
   } catch (error) {
     if (!isMissingContentReceiverError(error)) {
       throw error;
     }
     await ensureObserverInTab(await chrome.tabs.get(tab.id), { allFrames: Number.isInteger(options.frameId) });
     if (sendOptions) {
-      return chrome.tabs.sendMessage(tab.id, message, sendOptions);
+      return withTimeout(
+        chrome.tabs.sendMessage(tab.id, message, sendOptions),
+        CONTENT_MESSAGE_TIMEOUT_MS,
+        "Timed out waiting for the page observer to respond after reinjection."
+      );
     }
-    return chrome.tabs.sendMessage(tab.id, message);
+    return withTimeout(
+      chrome.tabs.sendMessage(tab.id, message),
+      CONTENT_MESSAGE_TIMEOUT_MS,
+      "Timed out waiting for the page observer to respond after reinjection."
+    );
   }
 }
 
@@ -1216,6 +1753,18 @@ async function getActiveTab() {
   return tab;
 }
 
+async function getTaskTab(tab) {
+  if (!Number.isInteger(tab?.id)) {
+    throw new Error("The task is not attached to a browser tab.");
+  }
+
+  try {
+    return await chrome.tabs.get(tab.id);
+  } catch (error) {
+    throw new Error(`The task tab is no longer available: ${error.message || String(error)}`);
+  }
+}
+
 async function openPlayground() {
   const url = chrome.runtime.getURL("playground/index.html");
   const tab = await chrome.tabs.create({
@@ -1232,9 +1781,8 @@ async function openPlayground() {
 }
 
 async function listModels() {
-  const settings = await getSettings();
   return {
-    models: await listOpenAIModels({ apiKey: settings.apiKey })
+    models: await listOpenRouterModels()
   };
 }
 
@@ -1286,7 +1834,7 @@ function normalizeSettings(settings) {
     ...DEFAULT_SETTINGS,
     apiKey: String(settings.apiKey || ""),
     confirmationMode,
-    model: String(settings.model || DEFAULT_SETTINGS.model),
+    model: normalizeModel(settings.model),
     maxSteps,
     showActionPreview: typeof settings.showActionPreview === "boolean"
       ? settings.showActionPreview
@@ -1308,6 +1856,32 @@ function isExtensionPlaygroundTab(tab) {
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function withTimeout(promise, milliseconds, message) {
+  let timeoutId = null;
+  const timeout = new Promise((resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+async function fetchWithTimeout(url, options = {}, milliseconds = 30000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), milliseconds);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Timed out connecting to ${url}.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function recoverFromLoopError({
@@ -1361,11 +1935,12 @@ function countRecoverySteps(trace) {
 function isRecoverableAgentError(error) {
   const message = error?.message || String(error || "");
   if (
-    message.includes("OpenAI API key") ||
+    message.includes("OpenRouter API key") ||
     message.includes("Website access was not granted") ||
     message.includes("Extension manifest must request permission") ||
     message.includes("Cannot access contents of the page") ||
-    message.includes("required action was not approved")
+    message.includes("required action was not approved") ||
+    message.includes("Timed out")
   ) {
     return false;
   }

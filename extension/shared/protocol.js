@@ -9,13 +9,14 @@ export const MESSAGE_TYPES = Object.freeze({
   NEW_CONVERSATION: "browserAgent.newConversation",
   SET_ACTIVE_CONVERSATION: "browserAgent.setActiveConversation",
   OPEN_PLAYGROUND: "browserAgent.openPlayground",
-  LIST_OPENAI_MODELS: "browserAgent.listOpenAIModels",
+  LIST_MODELS: "browserAgent.listModels",
   MODEL_STATUS: "browserAgent.modelStatus"
 });
 
 export const UI_MESSAGE_TYPES = Object.freeze({
   REQUEST_CONFIRMATION: "browserAgent.ui.requestConfirmation",
-  TASK_EVENT: "browserAgent.ui.taskEvent"
+  TASK_EVENT: "browserAgent.ui.taskEvent",
+  MCP_BRIDGE_STATUS: "browserAgent.ui.mcpBridgeStatus"
 });
 
 export const CONTENT_MESSAGE_TYPES = Object.freeze({
@@ -37,6 +38,14 @@ export const STORAGE_KEYS = Object.freeze({
   LATEST_SNAPSHOT: "browserAgent.latestSnapshot",
   CONVERSATIONS: "browserAgent.conversations",
   ACTIVE_CONVERSATION_ID: "browserAgent.activeConversationId"
+});
+
+export const MCP_BRIDGE = Object.freeze({
+  DEFAULT_PORT: 8765,
+  CLIENT_NAME: "poolside-browser-extension",
+  TOKEN: "poolside-it-for-me-local-bridge-v1",
+  POLL_TIMEOUT_MS: 30000,
+  RETRY_DELAY_MS: 1000
 });
 
 export const CONFIRMATION_MODES = Object.freeze({
@@ -67,10 +76,15 @@ export function normalizeConfirmationMode(mode, fallback = CONFIRMATION_MODES.SM
   return Object.values(CONFIRMATION_MODES).includes(normalized) ? normalized : fallback;
 }
 
-export const DEFAULT_MODEL = "gpt-5.4";
+export const DEFAULT_MODEL = "poolside/laguna-m.1:free";
 export const MAX_AGENT_STEPS = 1000;
 
 export const BUILT_IN_MODELS = Object.freeze([
+  "poolside/laguna-m.1:free",
+  "poolside/laguna-xs.2:free"
+]);
+
+const LEGACY_OPENAI_MODELS = Object.freeze([
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -84,6 +98,14 @@ export const BUILT_IN_MODELS = Object.freeze([
   "gpt-4.1-mini",
   "gpt-4.1-nano"
 ]);
+
+export function normalizeModel(model, fallback = DEFAULT_MODEL) {
+  const value = String(model || "").trim();
+  if (!value || LEGACY_OPENAI_MODELS.includes(value)) {
+    return fallback;
+  }
+  return value;
+}
 
 export const DEFAULT_SETTINGS = Object.freeze({
   apiKey: "",

@@ -338,7 +338,7 @@ async function refreshModels() {
   elements.refreshModelsButton.disabled = true;
   try {
     await saveSettingsFromForm();
-    const data = await sendMessage(MESSAGE_TYPES.LIST_OPENAI_MODELS);
+    const data = await sendMessage(MESSAGE_TYPES.LIST_MODELS);
     state.availableModels = mergeModels(data.models || [], [getSelectedModel()]);
     renderModelOptions(getSelectedModel());
     setStatus("Models refreshed");

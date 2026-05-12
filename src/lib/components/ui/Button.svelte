@@ -29,18 +29,18 @@
     [key: string]: any;
   } = $props();
 
-  const base = "inline-flex max-w-full min-w-0 items-center justify-center gap-2 rounded-md border text-center text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60";
+  const base = "inline-flex max-w-full min-w-0 shrink-0 items-center justify-center gap-1.5 rounded-full text-center font-medium antialiased transition-[background-color,color,filter,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
   const variants = {
-    primary: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
-    secondary: "border-border bg-transparent text-foreground hover:bg-secondary",
-    danger: "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90",
-    ghost: "border-transparent bg-transparent text-foreground hover:bg-secondary",
-    link: "border-transparent bg-transparent text-primary hover:underline"
+    primary: "fyr-control-primary",
+    secondary: "fyr-control-secondary",
+    danger: "fyr-control-danger",
+    ghost: "fyr-control-ghost",
+    link: "fyr-control-link hover:underline"
   };
   const sizes = {
-    sm: "min-h-7 px-2.5 py-1 text-xs",
-    md: "min-h-8 px-3 py-1.5",
-    icon: "size-8 p-0"
+    sm: "min-h-6 px-2 py-1 text-sm leading-[14px] [&_svg]:size-3.5",
+    md: "min-h-7 px-3 py-1.5 text-base leading-[16px] [&_svg]:size-4",
+    icon: "size-7 p-0 [&_svg]:size-4"
   };
   const linkSize = "min-h-0 p-0 text-xs";
 </script>

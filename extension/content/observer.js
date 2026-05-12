@@ -9,6 +9,8 @@
   const MAX_EMBEDDED_FRAMES = 50;
   const MAX_SEMANTIC_HINTS = 10;
   const MAX_IDENTIFIER_HINTS = 6;
+  const MAX_DOM_SCAN_ELEMENTS = 4000;
+  const MAX_TEXT_NODES_SCANNED = 6000;
   const MIN_ACTIONABLE_AREA = 48;
   const MIN_ACTIONABLE_SIDE = 4;
   const PREVIEW_ROOT_ID = "__browserAgentActionPreview";
@@ -834,30 +836,31 @@
     const snippets = [];
     const seen = new Set();
     const root = document.body || document.documentElement;
-    const walker = document.createTreeWalker(
-      root,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          const text = normalizeText(node.nodeValue || "");
-          if (text.length < 2) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          const parent = node.parentElement;
-          if (!parent || shouldSkipTextParent(parent) || !isElementVisible(parent)) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          if (!isTextNodeInViewport(node)) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 
     let truncated = false;
+    let scannedNodes = 0;
     while (walker.nextNode()) {
-      const text = normalizeText(walker.currentNode.nodeValue || "");
+      scannedNodes += 1;
+      if (scannedNodes > MAX_TEXT_NODES_SCANNED) {
+        truncated = true;
+        break;
+      }
+
+      const node = walker.currentNode;
+      const text = normalizeText(node.nodeValue || "");
+      if (text.length < 2) {
+        continue;
+      }
+
+      const parent = node.parentElement;
+      if (!parent || shouldSkipTextParent(parent) || !isElementVisible(parent)) {
+        continue;
+      }
+      if (!isTextNodeInViewport(node)) {
+        continue;
+      }
+
       if (!seen.has(text)) {
         seen.add(text);
         if (snippets.length >= MAX_VISIBLE_TEXT_SNIPPETS) {
@@ -874,6 +877,8 @@
         scope: "visible_viewport",
         includedSnippets: snippets.length,
         maxSnippets: MAX_VISIBLE_TEXT_SNIPPETS,
+        scannedNodes,
+        scanLimit: MAX_TEXT_NODES_SCANNED,
         truncated
       }
     };
@@ -897,12 +902,7 @@
       "[tabindex]"
     ].join(",");
 
-    const bySelector = Array.from(document.querySelectorAll(selector));
-    const withOnClickProperty = Array.from(document.querySelectorAll("body *"))
-      .filter((element) => typeof element.onclick === "function");
-    const withPointerCursor = Array.from(document.querySelectorAll("body *"))
-      .filter((element) => isPointerCursorAffordance(element, selector));
-    const unique = Array.from(new Set([...bySelector, ...withOnClickProperty, ...withPointerCursor]));
+    const unique = collectPotentialActionableElements(selector);
 
     return unique
       .filter((element) => isElementVisible(element))
@@ -914,6 +914,43 @@
       .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)
       .slice(0, MAX_ACTIONABLE_ELEMENTS)
       .map(({ element, rect }, index) => describeElement(element, rect, `el_${index + 1}`));
+  }
+
+  function collectPotentialActionableElements(selector) {
+    const root = document.body || document.documentElement;
+    const candidates = [];
+    const seen = new Set();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    let scannedElements = 0;
+
+    while (walker.nextNode()) {
+      scannedElements += 1;
+      if (scannedElements > MAX_DOM_SCAN_ELEMENTS) {
+        break;
+      }
+
+      const element = walker.currentNode;
+      if (!(element instanceof Element)) {
+        continue;
+      }
+      if (
+        element.matches(selector) ||
+        typeof element.onclick === "function" ||
+        isPointerCursorAffordance(element, selector)
+      ) {
+        addUniqueCandidate(candidates, seen, element);
+      }
+    }
+
+    return candidates;
+  }
+
+  function addUniqueCandidate(candidates, seen, element) {
+    if (seen.has(element)) {
+      return;
+    }
+    seen.add(element);
+    candidates.push(element);
   }
 
   function collectEmbeddedFrames() {

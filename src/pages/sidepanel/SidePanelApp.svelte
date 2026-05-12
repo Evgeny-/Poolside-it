@@ -1,15 +1,22 @@
 <script lang="ts">
-  import { ArrowLeft, Copy, Download, Eye, FlaskConical, MessageSquarePlus, RefreshCw, Send, Settings, Square } from "@lucide/svelte";
+  import { ArrowLeft, FileJson2, FlaskConical, MessageSquarePlus, Plug, RefreshCw, Send, Settings, Square } from "@lucide/svelte";
   import { Tabs } from "bits-ui";
   import Button from "$lib/components/ui/Button.svelte";
   import Field from "$lib/components/ui/Field.svelte";
   import InlineSelect from "$lib/components/ui/InlineSelect.svelte";
-  import JsonBlock from "$lib/components/ui/JsonBlock.svelte";
   import Section from "$lib/components/ui/Section.svelte";
   import { openExtensionTab, sendRuntimeMessage } from "$lib/chrome/runtime";
-  import { loadThemePreference, setThemePreference, THEME_OPTIONS, type ThemePreference } from "$lib/theme";
-  import { assistantResponseFromTrace, latestSnapshotFromTrace } from "$lib/trace/format";
-  import { createCompactTraceExport } from "$extension/shared/trace-export.js";
+  import {
+    ACCENT_THEME_OPTIONS,
+    loadAccentThemePreference,
+    loadThemePreference,
+    setAccentThemePreference,
+    setThemePreference,
+    THEME_OPTIONS,
+    type AccentThemePreference,
+    type ThemePreference
+  } from "$lib/theme";
+  import { assistantResponseFromTrace } from "$lib/trace/format";
   import { createTaskId } from "$extension/shared/trace.js";
   import {
     BUILT_IN_MODELS,
@@ -22,10 +29,8 @@
   } from "$extension/shared/protocol.js";
   import ConfirmationCard from "./ConfirmationCard.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import HistoryList from "./HistoryList.svelte";
   import MessageBubble from "./MessageBubble.svelte";
   import SiteAccessCard from "./SiteAccessCard.svelte";
-  import TraceTimeline from "./TraceTimeline.svelte";
 
   const OPTIONAL_SITE_ORIGINS = ["http://*/*", "https://*/*"];
 
@@ -37,7 +42,6 @@
   let observing = $state(false);
   let refreshingModels = $state(false);
   let grantingAccess = $state(false);
-  let siteAccessPromptedThisSession = $state(false);
   let ephemeralMessages = $state<any[]>([]);
 
   let apiKey = $state("");
@@ -47,6 +51,7 @@
   let showActionPreview = $state(true);
   let confirmationMode = $state(CONFIRMATION_MODES.SMART_CONFIRMATION);
   let themePreference = $state<ThemePreference>(loadThemePreference());
+  let accentThemePreference = $state<AccentThemePreference>(loadAccentThemePreference());
 
   let appState = $state<any>({
     settings: null,
@@ -57,6 +62,7 @@
     activeConversation: null,
     availableModels: [...BUILT_IN_MODELS],
     currentTaskId: null,
+    mcpBridge: null,
     pendingConfirmation: null,
     pendingSiteAccessRetry: null,
     running: false,
@@ -64,14 +70,11 @@
   });
 
   let conversationMessages = $derived(appState.activeConversation?.messages || []);
-  let visibleMessages = $derived([
-    ...conversationMessages,
-    ...ephemeralMessages
-  ]);
+  let visibleMessages = $derived(mergeVisibleMessages(conversationMessages, ephemeralMessages));
   let modelOptions = $derived(mergeModels(appState.availableModels, [modelValue]));
   let modelSelectOptions = $derived(modelOptions.map((model) => ({
     value: model,
-    label: model,
+    label: formatModelLabel(model),
     title: model
   })));
   let confirmationSelectOptions = $derived(Object.entries(CONFIRMATION_MODE_LABELS).map(([value, label]) => ({
@@ -84,6 +87,7 @@
     label: conversation.title || "New chat",
     title: conversation.title || "New chat"
   })));
+  let mcpBridgeLabel = $derived(appState.mcpBridge?.connected ? "MCP connected" : "MCP disconnected");
 
   $effect(() => {
     const listener = (message: any, sender: any, sendResponse: any) => {
@@ -98,6 +102,12 @@
 
       if (message?.type === UI_MESSAGE_TYPES.TASK_EVENT) {
         handleTaskEvent(message.payload || {});
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      if (message?.type === UI_MESSAGE_TYPES.MCP_BRIDGE_STATUS) {
+        appState.mcpBridge = message.payload || null;
         sendResponse({ ok: true });
         return false;
       }
@@ -138,6 +148,7 @@
     appState.conversations = data.conversations || [];
     appState.activeConversation = data.activeConversation || appState.conversations[0] || null;
     appState.availableModels = mergeModels(data.model?.builtInModels || [], [data.settings?.model]);
+    appState.mcpBridge = data.mcpBridge || null;
     syncSettingsDraft(data.settings);
     setStatus("Idle");
   }
@@ -208,9 +219,6 @@
     setStatus("Running");
 
     try {
-      if (!instructionOverride) {
-        await requestSiteAccessForPromptGesture();
-      }
       await saveSettings({ quiet: true });
       const data = await sendRuntimeMessage<any>(MESSAGE_TYPES.START_TASK, {
         taskId,
@@ -232,33 +240,16 @@
         setStatus(`Task ${data.trace.status || "finished"}`);
       }
     } catch (error: any) {
-      handlePossibleSiteAccessError(error, {
+      const handledSiteAccess = handlePossibleSiteAccessError(error, {
         type: "task",
         instruction
       });
+      if (!handledSiteAccess) {
+        addEphemeralMessage("error", error.message || "Task failed.");
+      }
       setStatus("Task failed");
     } finally {
       setRunning(false, null);
-    }
-  }
-
-  async function requestSiteAccessForPromptGesture() {
-    if (siteAccessPromptedThisSession || !apiKey.trim()) {
-      return;
-    }
-    siteAccessPromptedThisSession = true;
-    try {
-      const granted = await chrome.permissions.request({
-        origins: OPTIONAL_SITE_ORIGINS
-      });
-      if (granted) {
-        appState.siteAccessVisible = false;
-        appState.pendingSiteAccessRetry = null;
-        addEphemeralMessage("tool", "Website access granted.");
-      }
-    } catch (error) {
-      // Chrome only allows permission prompts during user gestures. If this is
-      // rejected, the normal failed-observation recovery card still appears.
     }
   }
 
@@ -296,6 +287,9 @@
       appState.pendingSiteAccessRetry = null;
       appState.siteAccessVisible = false;
       setStatus("Observed page");
+      if (data.trace?.taskId) {
+        openTraceDetails(data.trace.taskId);
+      }
     } catch (error: any) {
       handlePossibleSiteAccessError(error, { type: "observe" });
       addEphemeralMessage("error", error.message);
@@ -354,7 +348,7 @@
     refreshingModels = true;
     try {
       await saveSettingsFromForm();
-      const data = await sendRuntimeMessage<any>(MESSAGE_TYPES.LIST_OPENAI_MODELS);
+      const data = await sendRuntimeMessage<any>(MESSAGE_TYPES.LIST_MODELS);
       appState.availableModels = mergeModels(data.models || [], [getSelectedModel()]);
       setStatus("Models refreshed");
     } catch (error: any) {
@@ -373,47 +367,12 @@
     setThemePreference(themePreference);
   }
 
-  async function loadTrace(taskId: string) {
-    const data = await sendRuntimeMessage<any>(MESSAGE_TYPES.GET_TRACE, { taskId });
-    if (!data.trace) {
-      setStatus("Trace not found");
+  function updateAccentThemePreference(value: string) {
+    if (!ACCENT_THEME_OPTIONS.some((option) => option.value === value)) {
       return;
     }
-    appState.latestTrace = data.trace;
-    appState.latestSnapshot = latestSnapshotFromTrace(data.trace);
-    activeTab = "advanced";
-    setStatus("Trace loaded");
-  }
-
-  async function copyTrace() {
-    if (!appState.latestTrace) {
-      setStatus("No trace");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(createCompactTraceExport(appState.latestTrace), null, 2));
-      setStatus("Compact trace copied");
-    } catch (error: any) {
-      addEphemeralMessage("error", error.message);
-      setStatus("Copy failed");
-    }
-  }
-
-  function exportTrace() {
-    if (!appState.latestTrace) {
-      setStatus("No trace");
-      return;
-    }
-    const blob = new Blob([JSON.stringify(appState.latestTrace, null, 2)], {
-      type: "application/json"
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${appState.latestTrace.taskId || "browser-agent-trace"}.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setStatus("Trace exported");
+    accentThemePreference = value as AccentThemePreference;
+    setAccentThemePreference(accentThemePreference);
   }
 
   function handleTaskEvent(payload: any) {
@@ -439,12 +398,7 @@
         resolve,
         toolCall,
         title: toolCall.summary || humanizeTool(toolCall.tool),
-        reason: payload.deterministic?.reason || toolCall.reason || "This action may have side effects.",
-        meta: [
-          humanizeRisk(toolCall.riskCategory),
-          toolCall.elementId || "",
-          CONFIRMATION_MODE_LABELS[payload.mode] || payload.mode || ""
-        ].filter(Boolean)
+        reason: payload.deterministic?.reason || toolCall.reason || "This action may have side effects."
       };
     });
   }
@@ -464,14 +418,16 @@
 
   function handlePossibleSiteAccessError(error: any, retry: any = null) {
     if (!isSiteAccessError(error)) {
-      return;
+      return false;
     }
     showSiteAccessRetry(retry);
+    return true;
   }
 
   function showSiteAccessRetry(retry: any = null) {
     appState.pendingSiteAccessRetry = retry;
     appState.siteAccessVisible = true;
+    activeTab = "chat";
   }
 
   function setRunning(isRunning: boolean, taskId: string | null) {
@@ -496,6 +452,10 @@
     return customModel.trim() || modelValue || DEFAULT_SETTINGS.model;
   }
 
+  function formatModelLabel(model: string) {
+    return String(model || "").replace(/^poolside\//, "");
+  }
+
   function getVisibleMessageContent(message: any) {
     if (message.role !== "assistant" || !message.traceId) {
       return message.content || "";
@@ -507,11 +467,35 @@
     ephemeralMessages = [
       ...ephemeralMessages,
       {
+        messageId: createTaskId("local_msg"),
         role,
         kind: role === "tool" ? "progress" : "message",
-        content: body
+        content: body,
+        createdAt: new Date().toISOString()
       }
     ];
+  }
+
+  function mergeVisibleMessages(conversationMessages: any[], ephemeralMessages: any[]) {
+    return [
+      ...conversationMessages.map((message, index) => ({ message, index, source: "conversation" })),
+      ...ephemeralMessages.map((message, index) => ({ message, index, source: "ephemeral" }))
+    ]
+      .sort((left, right) => (
+        messageTimestamp(left.message, left.index) - messageTimestamp(right.message, right.index) ||
+        messageSourcePriority(left.source) - messageSourcePriority(right.source) ||
+        left.index - right.index
+      ))
+      .map(({ message }) => message);
+  }
+
+  function messageTimestamp(message: any, fallback: number) {
+    const timestamp = Date.parse(message?.createdAt || "");
+    return Number.isFinite(timestamp) ? timestamp : fallback;
+  }
+
+  function messageSourcePriority(source: string) {
+    return source === "ephemeral" ? 0 : 1;
   }
 
   function openTraceDetails(taskId: string) {
@@ -560,19 +544,6 @@
     return messages.find((message: string) => isSiteAccessErrorMessage(message)) || "";
   }
 
-  function humanizeRisk(riskCategory: string) {
-    const labels: Record<string, string> = {
-      external_submit: "Sends data",
-      destructive: "Destructive",
-      financial: "Financial",
-      auth_sensitive: "Account-sensitive",
-      unknown: "Unknown risk",
-      data_entry: "Data entry",
-      safe_navigation: "Navigation"
-    };
-    return labels[riskCategory] || "";
-  }
-
   function humanizeTool(tool: string) {
     return String(tool || "Approve action").replace(/_/g, " ");
   }
@@ -585,13 +556,13 @@
   }
 </script>
 
-<div class="grid h-screen min-w-80 overflow-hidden bg-background text-[13px] text-foreground">
+<div class="grid h-screen min-w-80 overflow-hidden bg-surface text-base text-foreground">
   <Tabs.Root bind:value={activeTab} class="grid h-full min-h-0 overflow-hidden">
     <Tabs.Content value="chat" class="hidden min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col">
-      <div class="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 border-b border-border bg-background px-3 py-2">
+      <div class="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-1.5 border-b border-border/70 bg-surface px-3 py-2">
         <InlineSelect
           class="min-w-0"
-          buttonClass="w-full justify-start px-0 text-[12px] text-foreground hover:bg-transparent"
+          buttonClass="w-full justify-start text-sm text-foreground"
           value={appState.activeConversation?.conversationId || ""}
           options={conversationOptions}
           placeholder="New chat"
@@ -601,16 +572,26 @@
         <Button size="icon" title="New chat" ariaLabel="New chat" onclick={newChat}>
           <MessageSquarePlus size={16} />
         </Button>
+        {#if appState.mcpBridge?.connected}
+          <div
+            class="inline-flex min-h-7 max-w-24 items-center gap-1 rounded-full border border-border/70 bg-accent/10 px-2 text-xs font-medium text-foreground"
+            title={mcpBridgeLabel}
+            aria-label={mcpBridgeLabel}
+          >
+            <Plug size={13} />
+            <span class="truncate">MCP</span>
+          </div>
+        {/if}
         <Button size="icon" title="Settings" ariaLabel="Settings" onclick={() => activeTab = "advanced"}>
           <Settings size={16} />
         </Button>
       </div>
 
-      <div bind:this={chatLogElement} class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-3 py-4">
+      <div bind:this={chatLogElement} class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto bg-background px-4 py-4">
         {#if visibleMessages.length === 0}
           <EmptyState onPrompt={startTask} />
         {:else}
-          {#each visibleMessages as message}
+          {#each visibleMessages as message (message.messageId || `${message.createdAt || ""}-${message.content || ""}`)}
             <MessageBubble
               {message}
               content={getVisibleMessageContent(message)}
@@ -630,72 +611,90 @@
       />
 
       <form
-        class="grid shrink-0 gap-2 border-t border-border bg-background p-3"
+        class="shrink-0 border-t border-border/70 bg-background px-3 pb-3 pt-2"
         onsubmit={(event) => {
           event.preventDefault();
           startTask();
         }}
       >
-        <textarea
-          bind:this={taskInputElement}
-          bind:value={taskInput}
-          class="max-h-36 min-h-12 resize-none rounded-md border border-border bg-card p-3 text-sm leading-5 placeholder:text-muted-foreground"
-          rows="2"
-          placeholder="Ask the agent to inspect, explain, or operate this tab"
-          oninput={resizeComposer}
-          onkeydown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              startTask();
-            }
-          }}
-        ></textarea>
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-          <div class="relative z-20 flex min-w-0 items-center gap-1.5 overflow-visible">
-            <InlineSelect
-              bind:value={modelValue}
-              options={modelSelectOptions}
-              placement="top"
-              ariaLabel="Model"
-              menuClass="left-0"
-              buttonClass="max-w-40"
-              onChange={() => saveSettings({ quiet: true })}
-            />
-            <InlineSelect
-              bind:value={confirmationMode}
-              options={confirmationSelectOptions}
-              placement="top"
-              ariaLabel="Confirmation mode"
-              menuClass="right-0"
-              buttonClass="max-w-32"
-              onChange={() => saveSettings({ quiet: true })}
-            />
+        <div class="fyr-composer grid gap-1 overflow-visible p-1.5">
+          <textarea
+            bind:this={taskInputElement}
+            bind:value={taskInput}
+            class="max-h-36 min-h-12 resize-none bg-transparent px-2.5 py-2 text-base leading-5 text-foreground outline-none placeholder:text-muted-foreground/70"
+            rows="2"
+            placeholder="Ask the agent to inspect, explain, or operate this tab"
+            oninput={resizeComposer}
+            onkeydown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                startTask();
+              }
+            }}
+          ></textarea>
+          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-1 pb-0.5">
+            <div class="relative z-20 flex min-w-0 items-center gap-1 overflow-visible">
+              <InlineSelect
+                bind:value={modelValue}
+                options={modelSelectOptions}
+                placement="top"
+                ariaLabel="Model"
+                menuClass="left-0"
+                buttonClass="max-w-40 min-h-7 rounded-full px-2 text-xs text-muted-foreground"
+                onChange={() => saveSettings({ quiet: true })}
+              />
+              <InlineSelect
+                bind:value={confirmationMode}
+                options={confirmationSelectOptions}
+                placement="top"
+                ariaLabel="Confirmation mode"
+                menuClass="right-0"
+                buttonClass="max-w-32 min-h-7 rounded-full px-2 text-xs text-muted-foreground"
+                onChange={() => saveSettings({ quiet: true })}
+              />
+            </div>
+            {#if appState.running}
+              <Button variant="danger" size="icon" title="Stop" ariaLabel="Stop" onclick={stopTask}>
+                <Square size={14} />
+              </Button>
+            {:else}
+              <Button variant="primary" size="icon" type="submit" title="Send" ariaLabel="Send">
+                <Send size={15} />
+              </Button>
+            {/if}
           </div>
-          {#if appState.running}
-            <Button variant="danger" size="icon" title="Stop" ariaLabel="Stop" onclick={stopTask}>
-              <Square size={14} />
-            </Button>
-          {:else}
-            <Button variant="primary" size="icon" type="submit" title="Send" ariaLabel="Send">
-              <Send size={15} />
-            </Button>
-          {/if}
         </div>
       </form>
     </Tabs.Content>
 
     <Tabs.Content value="advanced" class="hidden min-h-0 overflow-y-auto overflow-x-hidden data-[state=active]:block">
-      <div class="sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-background px-3 py-2">
+      <div class="sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 border-b border-border/70 bg-surface px-3 py-2">
         <Button size="icon" title="Back to chat" ariaLabel="Back to chat" onclick={() => activeTab = "chat"}>
           <ArrowLeft size={16} />
         </Button>
-        <div class="font-mono-ui truncate text-xs uppercase text-muted-foreground">Settings</div>
+        <div class="min-w-0">
+          <div class="truncate text-sm font-medium text-muted-foreground">Settings</div>
+          <div class="truncate text-xs text-muted-foreground/70">{status}</div>
+        </div>
+        <Button
+          size="icon"
+          title={observing ? "Observing page" : "Observe page"}
+          ariaLabel={observing ? "Observing page" : "Observe page"}
+          disabled={observing}
+          onclick={observePage}
+        >
+          {#if observing}
+            <RefreshCw class="animate-spin" size={16} />
+          {:else}
+            <FileJson2 size={16} />
+          {/if}
+        </Button>
         <Button size="icon" title="Open playground" ariaLabel="Open playground" onclick={openPlayground}>
           <FlaskConical size={16} />
         </Button>
       </div>
 
-      <Section title="Settings">
+      <Section title="Settings" class="border-b-0">
         <form
           class="grid gap-3"
           onsubmit={(event) => {
@@ -703,21 +702,33 @@
             saveSettings();
           }}
         >
-          <Field label="OpenAI API key">
-            <input class="min-h-9 rounded-md border border-input bg-card px-3" bind:value={apiKey} autocomplete="off" spellcheck="false" type="password" placeholder="sk-..." />
+          <Field label="OpenRouter API key">
+            <input class="fyr-input min-h-8 px-2 py-1.5 text-base" bind:value={apiKey} autocomplete="off" spellcheck="false" type="password" placeholder="sk-or-v1-..." />
           </Field>
           <Field label="Custom model">
-            <input class="min-h-9 rounded-md border border-input bg-card px-3" bind:value={customModel} autocomplete="off" spellcheck="false" placeholder="Optional model id" />
+            <input class="fyr-input min-h-8 px-2 py-1.5 text-base" bind:value={customModel} autocomplete="off" spellcheck="false" placeholder="Optional model id" />
           </Field>
           <Field label="Max steps">
-            <input class="min-h-9 rounded-md border border-input bg-card px-3" bind:value={maxSteps} min="1" max="1000" step="1" type="number" />
+            <input class="fyr-input min-h-8 px-2 py-1.5 text-base" bind:value={maxSteps} min="1" max="1000" step="1" type="number" />
           </Field>
           <Field label="Theme">
             <InlineSelect
+              class="w-full"
               bind:value={themePreference}
               options={THEME_OPTIONS}
               ariaLabel="Theme"
+              buttonClass="w-full justify-between"
               onChange={updateThemePreference}
+            />
+          </Field>
+          <Field label="Accent">
+            <InlineSelect
+              class="w-full"
+              bind:value={accentThemePreference}
+              options={ACCENT_THEME_OPTIONS}
+              ariaLabel="Accent"
+              buttonClass="w-full justify-between"
+              onChange={updateAccentThemePreference}
             />
           </Field>
           <label class="flex items-center gap-2 text-sm font-semibold">
@@ -737,35 +748,23 @@
         </form>
       </Section>
 
-      <Section title="Trace">
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(92px,1fr))] gap-2">
-          <Button class="w-full" size="sm" disabled={observing} onclick={observePage}>
-            <Eye size={14} />
-            Observe page
-          </Button>
-          <Button class="w-full" size="sm" onclick={copyTrace}>
-            <Copy size={14} />
-            Copy trace
-          </Button>
-          <Button class="w-full" size="sm" onclick={exportTrace}>
-            <Download size={14} />
-            Export JSON
-          </Button>
+      <Section title="MCP bridge" class="border-b-0">
+        <div class="grid gap-2 text-sm">
+          <div class="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-background px-3 py-2">
+            <div class="flex min-w-0 items-center gap-2">
+              <Plug size={15} />
+              <span class="truncate">{mcpBridgeLabel}</span>
+            </div>
+            <span class="shrink-0 text-xs text-muted-foreground">
+              {appState.mcpBridge?.port ? `:${appState.mcpBridge.port}` : "local"}
+            </span>
+          </div>
+          {#if appState.mcpBridge?.lastError && !appState.mcpBridge?.connected}
+            <p class="break-words text-xs leading-5 text-muted-foreground">{appState.mcpBridge.lastError}</p>
+          {/if}
         </div>
-        <TraceTimeline trace={appState.latestTrace} />
       </Section>
 
-      <Section title="Latest PageSnapshot">
-        <JsonBlock value={appState.latestSnapshot || {}} />
-      </Section>
-
-      <Section title="Raw JSON">
-        <JsonBlock value={appState.latestTrace || {}} />
-      </Section>
-
-      <Section title="Task Records" class="border-b-0">
-        <HistoryList history={appState.history} onLoad={loadTrace} onOpen={openTraceDetails} />
-      </Section>
     </Tabs.Content>
   </Tabs.Root>
 </div>

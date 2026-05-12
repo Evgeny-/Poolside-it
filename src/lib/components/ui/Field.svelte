@@ -13,7 +13,7 @@
   } = $props();
 </script>
 
-<label class={cn("font-mono-ui grid gap-1.5 text-xs font-medium uppercase text-muted-foreground", className)}>
-  <span>{label}</span>
+<label class={cn("grid gap-1.5 text-sm font-medium text-muted-foreground", className)}>
+  <span class="text-muted-foreground/85">{label}</span>
   {@render children?.()}
 </label>

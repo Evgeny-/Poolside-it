@@ -12,7 +12,9 @@
     "storage"
   ],
   "host_permissions": [
-    "https://api.openai.com/*"
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://openrouter.ai/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

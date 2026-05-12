@@ -12,10 +12,10 @@
   } = $props();
 </script>
 
-<article id={`step-${step?.step}`} class="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-panel">
+<article id={`step-${step?.step}`} class="grid gap-4 rounded-[16px] border border-foreground/[0.08] bg-background p-4">
   <header class="flex items-start justify-between gap-3">
-    <h3 class="min-w-0 break-words text-base font-bold">{step?.step}. {step?.tool || step?.type}</h3>
-    <span class="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+    <h3 class="min-w-0 break-words text-base font-medium">{step?.step}. {step?.tool || step?.type}</h3>
+    <span class="font-mono-ui shrink-0 rounded-full bg-foreground/[0.04] px-2.5 py-1 text-xs font-medium text-muted-foreground">
       {formatDate(step?.timestamp, { second: "2-digit" })}
     </span>
   </header>

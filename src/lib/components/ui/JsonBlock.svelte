@@ -16,6 +16,6 @@
   readonly
   spellcheck="false"
   rows="12"
-  class={`${maxHeight} min-h-56 w-full resize-y overflow-auto rounded-lg border border-border bg-code p-3 font-mono text-xs leading-5 text-code-foreground outline-none selection:bg-accent selection:text-accent-foreground`}
+  class={`${maxHeight} min-h-56 w-full resize-y overflow-auto rounded-lg border border-foreground/[0.08] bg-code p-3 font-mono text-xs leading-5 text-code-foreground outline-none selection:bg-accent selection:text-accent-foreground`}
   value={json}
 ></textarea>

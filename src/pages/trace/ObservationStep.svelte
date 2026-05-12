@@ -23,25 +23,25 @@
 
   {#if snapshot.frames?.length}
     <section class="grid gap-2">
-      <h4 class="text-sm font-bold">Frames</h4>
+      <h4 class="text-sm font-medium text-muted-foreground">Frames</h4>
       <ExpandableList items={snapshot.frames} initialLimit={12} formatter={formatFrameSummary} />
     </section>
   {/if}
 
   {#if snapshot.embeddedFrames?.length}
     <section class="grid gap-2">
-      <h4 class="text-sm font-bold">Embedded frames</h4>
+      <h4 class="text-sm font-medium text-muted-foreground">Embedded frames</h4>
       <ExpandableList items={snapshot.embeddedFrames} initialLimit={12} formatter={formatEmbeddedFrameSummary} />
     </section>
   {/if}
 
   <section class="grid gap-2">
-    <h4 class="text-sm font-bold">Visible text</h4>
+    <h4 class="text-sm font-medium text-muted-foreground">Visible text</h4>
     <ExpandableList items={snapshot.pageText || []} initialLimit={12} />
   </section>
 
   <section class="grid gap-2">
-    <h4 class="text-sm font-bold">Actionable elements</h4>
+    <h4 class="text-sm font-medium text-muted-foreground">Actionable elements</h4>
     <ExpandableList items={snapshot.elements || []} initialLimit={18} formatter={formatElementSummary} />
   </section>
 </div>

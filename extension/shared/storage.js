@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, STORAGE_KEYS, TRACE_LIMITS, normalizeConfirmationMode } from "./protocol.js";
+import { DEFAULT_SETTINGS, STORAGE_KEYS, TRACE_LIMITS, normalizeConfirmationMode, normalizeModel } from "./protocol.js";
 import { createId } from "./trace.js";
 
 export async function getSettings() {
@@ -11,7 +11,8 @@ export async function getSettings() {
   };
   return {
     ...settings,
-    confirmationMode: normalizeConfirmationMode(settings.confirmationMode)
+    confirmationMode: normalizeConfirmationMode(settings.confirmationMode),
+    model: normalizeModel(settings.model)
   };
 }
 
@@ -23,7 +24,8 @@ export async function saveSettings(nextSettings) {
   };
   const normalized = {
     ...merged,
-    confirmationMode: normalizeConfirmationMode(merged.confirmationMode)
+    confirmationMode: normalizeConfirmationMode(merged.confirmationMode),
+    model: normalizeModel(merged.model)
   };
   await chrome.storage.local.set({
     [STORAGE_KEYS.SETTINGS]: normalized

@@ -1,10 +1,26 @@
 # Poolside it for me
 
-Poolside it for me is a Chrome/Chromium Manifest V3 extension that opens a side-panel chat for inspecting, explaining, and operating the active browser tab.
+Poolside it for me is a Chrome/Chromium Manifest V3 extension that opens an AI side-panel for the active browser tab. It can inspect visible page content, explain what it sees, and perform controlled browser actions such as clicking, filling fields, selecting options, pressing keys, and scrolling.
 
-The current prototype is extension-only. Runtime code lives in `extension/`, while UI pages are built from Svelte 5 sources in `src/pages/`. Chrome should load the generated `dist/chrome/` directory.
+The project is a local-first prototype: there is no hosted backend, the UI is built with Svelte 5 and Vite, and model calls are made from the extension service worker with your own OpenRouter API key.
 
-## Development Workflow
+## What It Includes
+
+- Side-panel chat for browser tasks.
+- Deterministic page observation and typed browser actions.
+- Confirmation checks for risky actions such as submitting forms or making account changes.
+- Local playground pages for safe testing.
+- Run details with observations, model decisions, validation, confirmations, and execution results.
+- Optional local MCP bridge for driving the extension from MCP clients.
+
+## Requirements
+
+- Node.js 22.12+ or 24+
+- npm
+- Chrome or another Chromium-based browser
+- OpenRouter API key for model-backed tasks
+
+## Run Locally
 
 Install dependencies:
 
@@ -18,58 +34,47 @@ Build the unpacked extension:
 npm run build
 ```
 
-1. Open Chrome or another Chromium-based browser.
-2. Go to `chrome://extensions`.
-3. Enable Developer mode.
-4. Choose **Load unpacked** and select this repository's `dist/chrome/` directory.
-5. Open the Poolside it for me side panel.
-6. Save an OpenAI API key in **Advanced** if model-backed tasks are needed.
-7. Use **Playground** for safe local testing.
+Load it in Chrome:
 
-Watch and rebuild during development:
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select the generated `dist/chrome/` directory.
+5. Open the extension side panel.
+6. Add your OpenRouter API key in **Advanced**.
+7. Use **Playground** for safe first tests.
+
+During development, rebuild automatically with:
 
 ```sh
 npm run dev
 ```
 
-Run all required checks before handoff:
+Before sharing changes, run:
 
 ```sh
 npm run verify
 ```
 
-`npm run verify` builds `dist/chrome/`, runs `svelte-check`, and syntax-checks the built service worker and content observer.
+This builds the extension, runs `svelte-check`, and syntax-checks the built service worker, content observer, and MCP server.
 
-Node 24 or Node 22.12+ is the supported toolchain target for the current Svelte/Vite dependencies. This repo was also verified locally on Node 23.11.
+## Optional MCP Bridge
 
-## Frontend Stack
+Start the local MCP bridge with:
 
-- Svelte 5 with runes.
-- Vite 8 multi-page build.
-- Tailwind CSS v4 with CSS-first tokens.
-- Bits UI primitives and local shadcn-svelte-style components.
-- `@lucide/svelte` icons.
+```sh
+npm run mcp
+```
 
-The migration plan and implementation notes are in `docs/svelte-extension-migration-plan.md`.
+For MCP clients that launch servers directly, configure the command as `node` with `mcp/server.mjs` as the argument from this repository. The bridge listens on `127.0.0.1:8765` by default and requires the extension side panel to be open.
 
-## Architecture
+## Project Layout
 
-- `src/pages/sidepanel/`: Svelte side-panel chat UI.
-- `src/pages/trace/`: Svelte run-details page.
-- `src/pages/playground/`: Svelte local fixture pages.
-- `src/lib/`: shared UI components, Chrome helpers, trace formatting, and Tailwind CSS tokens.
-- `components.json`: shadcn-svelte configuration for local UI component generation.
-- `extension/service-worker.js`: MV3 background coordinator, model calls, agent loop, validation, confirmations, trace persistence, and playground opening.
-- `extension/content/observer.js`: content-script observer and deterministic executor.
-- `extension/shared/*`: protocol, storage, trace, and trace export helpers.
-- `extension/model/*`: OpenAI client and agent decision logic.
-- `scripts/build-extension.mjs`: copies runtime files and builds Svelte pages into `dist/chrome/`.
-- `.github/workflows/verify.yml`: CI workflow for `npm ci` and `npm run verify`.
-- `dist/chrome/`: generated unpacked extension output.
+- `extension/`: Manifest V3 runtime files, service worker, content observer, shared protocol/storage/trace helpers, and model client.
+- `src/pages/sidepanel/`: Svelte side-panel app.
+- `src/pages/trace/`: Svelte run-details app.
+- `src/pages/playground/`: Safe local test pages.
+- `src/lib/`: shared UI components, styles, Chrome helpers, and trace formatting.
+- `scripts/build-extension.mjs`: builds `dist/chrome/`.
 
-## Safety Model
-
-- Do not execute model-generated JavaScript, CSS, selectors, or arbitrary code in pages.
-- Use only element IDs from the latest page snapshot.
-- Treat sending, submitting, deleting, purchasing, uploading, account changes, and similar external side effects as confirmation-required.
-- Keep the API key in extension local storage and service-worker requests only.
+`dist/chrome/` is generated output and is not edited directly.

@@ -30,7 +30,7 @@ export function createCompactTraceExport(trace) {
     omissions: [
       "Full PageSnapshot objects are omitted; observation steps keep counts and short previews only.",
       "Full model request text previews are omitted; model request entries keep sizes and context-management metadata.",
-      "Full raw OpenAI responses are omitted; response entries keep id, model, status, usage, and error."
+      "Full raw model responses are omitted; response entries keep id, model, status, usage, and error."
     ],
     task: compactTask(trace),
     metrics: compactTraceMetrics(trace),
